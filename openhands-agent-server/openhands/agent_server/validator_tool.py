@@ -40,13 +40,18 @@ class ValidationResult:
 
 
 class ValidatorAction(Action):
-    dockerfile_path: str = Field(description="Path to Dockerfile")
-    test_script_path: str = Field(description="Path to Python test script")
-    extra_info_path: str = Field(description="Path to extra info JSON")
+    dockerfile_path: str = Field(
+        description="Workspace path to the current Dockerfile under validation.",
+    )
+    test_script_path: str = Field(
+        description="Workspace path to the current run_tests.py under validation.",
+    )
+    extra_info_path: str = Field(
+        description="Workspace path to the current extra_info.json for validation status updates.",
+    )
     image_name: str = Field(
         description=(
-            "Image selector for validation. Use 'scratch' to build a new image, "
-            "or provide an existing image name to reuse."
+            "Validation image selector. Use 'scratch' to build a new image, or provide an existing image name to reuse."
         ),
     )
 
@@ -57,10 +62,9 @@ class ValidatorObservation(Observation):
 
     @property
     def to_llm_content(self) -> Sequence[TextContent | ImageContent]:
-        status = "OK" if self.ok else "ERROR"
         summary = [
-            f"Validator status: {status}",
-            f"Message: {self.message}",
+            f"validator_ok: {str(self.ok).lower()}",
+            f"message: {self.message}",
         ]
         return [TextContent(text="\n".join(summary))]
 
@@ -117,7 +121,7 @@ class ValidatorExecutor(ToolExecutor[ValidatorAction, ValidatorObservation]):
         used_name = used_image_name.strip() if isinstance(used_image_name, str) else ""
         if not used_name:
             used_name = "N/A"
-        suffix = f"Image used for this validate: {used_name}"
+        suffix = f"used_image_name: {used_name}"
         return ValidatorObservation(
             ok=ok,
             message=suffix if not message.rstrip() else f"{message.rstrip()}\n{suffix}",
@@ -237,14 +241,10 @@ class ValidatorTool(ToolDefinition[ValidatorAction, ValidatorObservation]):
         return [
             cls(
                 description=(
-                    "Before calling this tool, you MUST successfully run your own "
-                    "test runner locally and verify the result file format is "
-                    "correct. This tool triggers a host-side image build and test "
-                    "execution, which is expensive and slow. DO NOT call it unless "
-                    "you are absolutely certain the local validation is correct. "
-                    "You MUST provide image_name: use 'scratch' to build a new "
-                    "image, or provide an existing image name to reuse and skip "
-                    "rebuilding."
+                    "Run host-side validation for the current Dockerfile, run_tests.py, and extra_info.json. "
+                    "Call this only after local validation is ready. "
+                    "This tool triggers expensive host-side image build and test execution. "
+                    "You must provide image_name: use 'scratch' to build a new image, or provide an existing image name to reuse."
                 ),
                 action_type=ValidatorAction,
                 observation_type=ValidatorObservation,
