@@ -99,6 +99,10 @@ class DockerWorkspace(RemoteWorkspace):
         default_factory=list,
         description="Additional volume mounts for the Docker container.",
     )
+    labels: dict[str, str] = Field(
+        default_factory=dict,
+        description="Additional Docker labels applied to the container.",
+    )
     detach_logs: bool = Field(
         default=True, description="Whether to stream Docker logs in background."
     )
@@ -216,6 +220,10 @@ class DockerWorkspace(RemoteWorkspace):
         for volume in self.volumes:
             flags += ["-v", volume]
             logger.info(f"Adding volume mount: {volume}")
+
+        for key, value in sorted(self.labels.items()):
+            flags += ["--label", f"{key}={value}"]
+            logger.info(f"Adding container label: {key}={value}")
 
         ports = ["-p", f"{self.host_port}:8000"]
         if self.extra_ports:
