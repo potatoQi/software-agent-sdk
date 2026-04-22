@@ -1047,6 +1047,10 @@ class RemoteConversation(BaseConversation):
                     elapsed,
                 )
                 self._state.refresh_from_server()
+                # WebSocket delivery can race with late-arriving side-path events
+                # such as LLMCompletionLogEvent. Reconcile before returning so the
+                # terminal-path behavior matches the REST fallback path.
+                self._state.events.reconcile()
                 return
             except Empty:
                 pass  # Queue.get() timed out, fall through to REST polling

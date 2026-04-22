@@ -1182,6 +1182,54 @@ class TestEventServiceRun:
         # State update should still be published (in finally block)
         event_service._publish_state_update.assert_called()
 
+    @pytest.mark.asyncio
+    async def test_run_waits_for_thread_emitted_events_before_final_publish(
+        self, event_service
+    ):
+        """Thread-emitted events must flush before final state update."""
+        conversation = MagicMock(spec=Conversation)
+        state = MagicMock(spec=ConversationState)
+        state.execution_status = ConversationExecutionStatus.IDLE
+        state.__enter__ = MagicMock(return_value=state)
+        state.__exit__ = MagicMock(return_value=None)
+        conversation._state = state
+
+        started = threading.Event()
+        unblock = threading.Event()
+
+        def on_event(_event):
+            started.set()
+            assert unblock.wait(timeout=1.0), "side-path event never got unblocked"
+
+        conversation._on_event = MagicMock(side_effect=on_event)
+        event_service._conversation = conversation
+        event_service._main_loop = asyncio.get_running_loop()
+
+        def conversation_run():
+            event_service._emit_event_from_thread(
+                ConversationStateUpdateEvent(key="stats", value={"ok": True})
+            )
+            assert started.wait(timeout=1.0), "side-path event never started"
+
+        conversation.run = MagicMock(side_effect=conversation_run)
+
+        publish_started = asyncio.Event()
+
+        async def publish_state_update():
+            publish_started.set()
+
+        event_service._publish_state_update = AsyncMock(side_effect=publish_state_update)
+
+        await event_service.run()
+        await asyncio.sleep(0.05)
+        assert not publish_started.is_set()
+
+        unblock.set()
+        await event_service._run_task
+
+        assert publish_started.is_set()
+        conversation._on_event.assert_called_once()
+
 
 class TestEventServiceSaveMeta:
     """Test cases for EventService.save_meta method."""

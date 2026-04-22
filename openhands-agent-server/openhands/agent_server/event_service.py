@@ -1,4 +1,7 @@
 import asyncio
+import threading
+import time
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -47,6 +50,10 @@ class EventService:
     _run_task: asyncio.Task | None = field(default=None, init=False)
     _run_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False)
     _callback_wrapper: AsyncCallbackWrapper | None = field(default=None, init=False)
+    _thread_event_futures: list[Future] = field(default_factory=list, init=False)
+    _thread_event_futures_lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False
+    )
 
     @property
     def conversation_dir(self):
@@ -394,7 +401,45 @@ class EventService:
 
             # Run the locked callback in an executor to ensure the event is
             # both persisted and sent to WebSocket subscribers
-            self._main_loop.run_in_executor(None, locked_on_event)
+            future = self._main_loop.run_in_executor(None, locked_on_event)
+            with self._thread_event_futures_lock:
+                self._thread_event_futures = [
+                    pending
+                    for pending in self._thread_event_futures
+                    if not pending.done()
+                ]
+                self._thread_event_futures.append(future)
+
+    def _wait_for_thread_emitted_events(self, timeout: float | None = None) -> None:
+        """Wait for side-path event emission futures to finish.
+
+        Events emitted through _emit_event_from_thread() do not flow through
+        AsyncCallbackWrapper. They still need to finish persisting via
+        conversation._on_event() before the run can be considered flushed.
+        """
+        deadline = None if timeout is None else time.monotonic() + timeout
+
+        while True:
+            with self._thread_event_futures_lock:
+                self._thread_event_futures = [
+                    future for future in self._thread_event_futures if not future.done()
+                ]
+                futures = list(self._thread_event_futures)
+
+            if not futures:
+                return
+
+            for future in futures:
+                remaining = None
+                if deadline is not None:
+                    remaining = max(0.0, deadline - time.monotonic())
+                    if remaining == 0.0:
+                        return
+                try:
+                    future.result(timeout=remaining)
+                except Exception:
+                    # Exceptions are already handled/logged elsewhere; best effort.
+                    pass
 
     def _setup_llm_log_streaming(self, agent: AgentBase) -> None:
         """Configure LLM log callbacks to stream logs via events."""
@@ -577,11 +622,16 @@ class EventService:
                 except Exception:
                     logger.exception("Error during conversation run")
                 finally:
-                    # Wait for all pending events to be published via
-                    # AsyncCallbackWrapper before publishing the final state update.
-                    # This prevents a race condition where the conversation status
-                    # becomes FINISHED before agent events (MessageEvent, ActionEvent,
-                    # etc.) are published to WebSocket subscribers.
+                    # Flush thread-emitted events (LLM completion logs, stats updates)
+                    # first so any callback_wrapper work they trigger is also visible.
+                    await loop.run_in_executor(
+                        None, self._wait_for_thread_emitted_events, 30.0
+                    )
+
+                    # Then flush async subscriber callbacks. We do this after waiting
+                    # for thread-emitted events so completions/stats that were
+                    # persisted late can still publish to subscribers before the final
+                    # state update is sent.
                     if self._callback_wrapper:
                         await loop.run_in_executor(
                             None, self._callback_wrapper.wait_for_pending, 30.0

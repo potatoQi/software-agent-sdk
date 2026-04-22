@@ -765,6 +765,27 @@ class TestRemoteConversation:
     @patch(
         "openhands.sdk.conversation.impl.remote_conversation.WebSocketCallbackClient"
     )
+    def test_remote_conversation_run_ws_terminal_reconciles_events(
+        self, mock_ws_client
+    ):
+        """WebSocket terminal completion should reconcile late events before return."""
+        conversation_id = str(uuid.uuid4())
+        mock_client_instance = self.setup_mock_client(conversation_id=conversation_id)
+
+        mock_ws_instance = Mock()
+        mock_ws_client.return_value = mock_ws_instance
+
+        conversation = RemoteConversation(agent=self.agent, workspace=self.workspace)
+        conversation.state.events.reconcile = Mock()
+        conversation._terminal_status_queue.put("finished")
+
+        conversation.run(blocking=True, poll_interval=0.01)
+
+        conversation.state.events.reconcile.assert_called_once()
+
+    @patch(
+        "openhands.sdk.conversation.impl.remote_conversation.WebSocketCallbackClient"
+    )
     def test_remote_conversation_run_error_status_raises(self, mock_ws_client):
         """Test that error status raises ConversationRunError."""
         conversation_id = str(uuid.uuid4())
