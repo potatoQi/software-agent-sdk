@@ -1,9 +1,7 @@
 from collections.abc import Callable
+from dataclasses import dataclass
 from types import MappingProxyType
-from typing import ClassVar
 from uuid import uuid4
-
-from pydantic import BaseModel, ConfigDict
 
 from openhands.sdk.llm.llm import LLM
 from openhands.sdk.logger import get_logger
@@ -12,12 +10,9 @@ from openhands.sdk.logger import get_logger
 logger = get_logger(__name__)
 
 
-class RegistryEvent(BaseModel):
+@dataclass(slots=True)
+class RegistryEvent:
     llm: LLM
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(
-        arbitrary_types_allowed=True,
-    )
 
 
 class LLMRegistry:

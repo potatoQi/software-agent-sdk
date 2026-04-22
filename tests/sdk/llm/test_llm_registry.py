@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
+from pydantic import SecretStr
+
 from openhands.sdk.llm.llm import LLM
 from openhands.sdk.llm.llm_registry import LLMRegistry, RegistryEvent
 
@@ -306,3 +308,31 @@ def test_llm_registry_does_not_reset_metrics_for_independent_llms():
     # llm2 should have its own independent metrics
     assert llm2.metrics is not llm1.metrics
     assert llm2.metrics.accumulated_cost == 0.0
+
+
+def test_llm_registry_add_preserves_llm_telemetry_callbacks():
+    """Adding an independent LLM must not wipe runtime telemetry callbacks."""
+
+    registry = LLMRegistry()
+
+    llm = LLM(
+        model="gpt-4o",
+        api_key=SecretStr("test-key"),
+        usage_id="callback-llm",
+        log_completions=True,
+        log_completions_folder="/tmp/llm-completions",
+    )
+
+    def log_callback(_filename: str, _payload: str) -> None:
+        return None
+
+    def stats_callback() -> None:
+        return None
+
+    llm.telemetry.set_log_completions_callback(log_callback)
+    llm.telemetry.set_stats_update_callback(stats_callback)
+
+    registry.add(llm)
+
+    assert llm.telemetry._log_completions_callback is log_callback
+    assert llm.telemetry._stats_update_callback is stats_callback
