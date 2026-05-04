@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from openhands.tools.browser_use import event_storage as event_storage_module
 from openhands.tools.browser_use.event_storage import EventStorage
 from openhands.tools.browser_use.recording import (
     DEFAULT_CONFIG,
@@ -119,6 +120,39 @@ class TestEventStorage:
             storage.create_session_subfolder()
             result = storage.save_events([])
             assert result is None
+
+    def test_create_session_subfolder_returns_none_on_permission_error(
+        self, monkeypatch
+    ):
+        """Test that recording setup is best-effort when output is not writable."""
+
+        def deny_makedirs(*args, **kwargs):
+            raise PermissionError("permission denied")
+
+        monkeypatch.setattr(event_storage_module.os, "makedirs", deny_makedirs)
+
+        storage = EventStorage(output_dir="/not-writable")
+        result = storage.create_session_subfolder()
+
+        assert result is None
+        assert storage.session_dir is None
+
+    def test_save_events_returns_none_on_permission_error(self, monkeypatch, tmp_path):
+        """Test that failed recording persistence does not update counters."""
+
+        def deny_makedirs(*args, **kwargs):
+            raise PermissionError("permission denied")
+
+        monkeypatch.setattr(event_storage_module.os, "makedirs", deny_makedirs)
+
+        storage = EventStorage(output_dir=str(tmp_path))
+        storage._session_dir = str(tmp_path / "recording")
+
+        result = storage.save_events(create_mock_events(5))
+
+        assert result is None
+        assert storage.file_count == 0
+        assert storage.total_events == 0
 
     def test_reset_clears_state(self):
         """Test that reset clears all storage state."""

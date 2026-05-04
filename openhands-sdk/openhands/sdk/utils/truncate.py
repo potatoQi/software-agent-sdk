@@ -27,24 +27,23 @@ DEFAULT_TRUNCATE_NOTICE_WITH_PERSIST = (
 
 def _save_full_content(content: str, save_dir: str, tool_prefix: str) -> str | None:
     """Save full content to the specified directory and return the file path."""
+    try:
+        save_dir_path = Path(save_dir)
+        save_dir_path.mkdir(parents=True, exist_ok=True)
 
-    save_dir_path = Path(save_dir)
-    save_dir_path.mkdir(parents=True, exist_ok=True)
+        # Generate hash-based filename for deduplication
+        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()[:8]
+        filename = f"{tool_prefix}_output_{content_hash}.txt"
+        file_path = save_dir_path / filename
 
-    # Generate hash-based filename for deduplication
-    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()[:8]
-    filename = f"{tool_prefix}_output_{content_hash}.txt"
-    file_path = save_dir_path / filename
-
-    # Only write if file doesn't exist (deduplication)
-    if not file_path.exists():
-        try:
+        # Only write if file doesn't exist (deduplication)
+        if not file_path.exists():
             file_path.write_text(content, encoding="utf-8")
-        except Exception as e:
-            logger.debug(f"Failed to save full content to {file_path}: {e}")
-            return None
 
-    return str(file_path)
+        return str(file_path)
+    except Exception as e:
+        logger.debug(f"Failed to save full content to {save_dir}: {e}")
+        return None
 
 
 def maybe_truncate(

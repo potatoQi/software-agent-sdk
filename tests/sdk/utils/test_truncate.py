@@ -1,5 +1,6 @@
 """Tests for truncate utility functions."""
 
+import openhands.sdk.utils.truncate as truncate_module
 from openhands.sdk.utils import (
     DEFAULT_TEXT_CONTENT_LIMIT,
     DEFAULT_TRUNCATE_NOTICE,
@@ -210,6 +211,30 @@ def test_maybe_truncate_same_content_different_prefix_different_files(tmp_path):
     # Verify both files contain the same content
     assert bash_files[0].read_text() == content
     assert editor_files[0].read_text() == content
+
+
+def test_maybe_truncate_ignores_persistence_permission_error(monkeypatch):
+    """Failure to persist the full output should not fail truncation."""
+
+    class DeniedPath:
+        def __init__(self, raw_path):
+            self.raw_path = raw_path
+
+        def mkdir(self, *args, **kwargs):
+            raise PermissionError("permission denied")
+
+    monkeypatch.setattr(truncate_module, "Path", DeniedPath)
+
+    content = "A" * 1000
+    result = maybe_truncate(
+        content,
+        truncate_after=400,
+        save_dir="/not-writable",
+        tool_prefix="bash",
+    )
+
+    assert "<response clipped>" in result
+    assert "complete output has been saved" not in result
 
 
 def test_maybe_truncate_hash_based_filename(tmp_path):

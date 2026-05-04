@@ -40,7 +40,14 @@ class EventStorage:
             return None
         timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f")
         subfolder = os.path.join(self.output_dir, f"recording-{timestamp}")
-        os.makedirs(subfolder, exist_ok=True)
+        try:
+            os.makedirs(subfolder, exist_ok=True)
+        except Exception as exc:
+            logger.debug(
+                f"Failed to create browser recording directory {subfolder}: {exc}"
+            )
+            self._session_dir = None
+            return None
         self._session_dir = subfolder
         return subfolder
 
@@ -49,12 +56,18 @@ class EventStorage:
         if not self._session_dir or not events:
             return None
 
-        os.makedirs(self._session_dir, exist_ok=True)
         timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f")
         filepath = os.path.join(self._session_dir, f"{timestamp}.json")
 
-        with open(filepath, "w") as f:
-            json.dump(events, f)
+        try:
+            os.makedirs(self._session_dir, exist_ok=True)
+            with open(filepath, "w") as f:
+                json.dump(events, f)
+        except Exception as exc:
+            logger.debug(
+                f"Failed to save browser recording events to {filepath}: {exc}"
+            )
+            return None
 
         self._files_written += 1
         self._total_events += len(events)
