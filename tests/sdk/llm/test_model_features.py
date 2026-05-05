@@ -357,8 +357,13 @@ def test_prompt_cache_retention_support(model, expected_retention):
         # DeepSeek reasoner model
         ("deepseek/deepseek-reasoner", True),
         ("DeepSeek/deepseek-reasoner", True),
+        # Huawei OpenAI-compatible GLM deployment
+        ("glm-5-w4a8", True),
+        ("openai/glm-5-w4a8", True),
+        ("GLM-5-W4A8", True),  # Case insensitive
         # Models that should NOT match
         ("deepseek/deepseek-chat", False),  # Different DeepSeek model
+        ("glm-4.5", False),  # Do not enable every GLM model by default
         ("kimi-k2-instruct", False),  # Different variant
         ("gpt-4o", False),
         ("claude-3-5-sonnet", False),

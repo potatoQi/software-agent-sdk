@@ -171,6 +171,7 @@ SEND_REASONING_CONTENT_MODELS: list[str] = [
     "kimi-k2.5",
     "openrouter/minimax-m2",  # MiniMax-M2 via OpenRouter (interleaved thinking)
     "deepseek/deepseek-reasoner",
+    "glm-5-w4a8",  # Huawei OpenAI-compatible GLM deployment
 ]
 
 
