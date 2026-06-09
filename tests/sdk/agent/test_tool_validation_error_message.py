@@ -1,5 +1,6 @@
 """Test that tool validation error messages are concise and don't include values."""
 
+import json
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Self
 from unittest.mock import patch
@@ -15,7 +16,7 @@ from pydantic import SecretStr
 
 from openhands.sdk.agent import Agent
 from openhands.sdk.conversation import Conversation
-from openhands.sdk.event import AgentErrorEvent
+from openhands.sdk.event import ActionEvent, AgentErrorEvent
 from openhands.sdk.llm import LLM, Message, TextContent
 from openhands.sdk.security.llm_analyzer import LLMSecurityAnalyzer
 from openhands.sdk.tool import Action, Observation, Tool, ToolExecutor, register_tool
@@ -197,3 +198,73 @@ def test_unparseable_json_error_message():
     error_msg = error_events[0].error
     assert "validation_test_tool" in error_msg
     assert "unparseable JSON" in error_msg
+
+
+def test_unparseable_json_action_event_replays_valid_arguments():
+    """Invalid tool calls should not poison the next LLM request history."""
+    llm = LLM(
+        usage_id="test-llm",
+        model="test-model",
+        api_key=SecretStr("test-key"),
+        base_url="http://test",
+    )
+    agent = Agent(llm=llm, tools=[Tool(name="ValidationTestTool")])
+
+    invalid_json = (
+        '{"thought": "collect: `{"path": "tests/test_a_star.py"}` before run"}'
+    )
+
+    def mock_llm_response(messages, **kwargs):
+        return ModelResponse(
+            id="mock-1",
+            choices=[
+                Choices(
+                    index=0,
+                    message=LiteLLMMessage(
+                        role="assistant",
+                        content="I'll use the tool.",
+                        tool_calls=[
+                            ChatCompletionMessageToolCall(
+                                id="call_1",
+                                type="function",
+                                function=Function(
+                                    name="validation_test_tool", arguments=invalid_json
+                                ),
+                            )
+                        ],
+                    ),
+                    finish_reason="tool_calls",
+                )
+            ],
+            created=0,
+            model="test-model",
+            object="chat.completion",
+        )
+
+    collected_events = []
+    conversation = Conversation(agent=agent, callbacks=[collected_events.append])
+
+    with patch(
+        "openhands.sdk.llm.llm.litellm_completion", side_effect=mock_llm_response
+    ):
+        conversation.send_message(
+            Message(role="user", content=[TextContent(text="Do something")])
+        )
+        agent.step(conversation, on_event=collected_events.append)
+
+    error_events = [e for e in collected_events if isinstance(e, AgentErrorEvent)]
+    assert len(error_events) == 1
+    assert error_events[0].tool_call_id == "call_1"
+    assert "unparseable JSON" in error_events[0].error
+
+    non_executable_actions = [
+        e
+        for e in collected_events
+        if isinstance(e, ActionEvent) and e.action is None
+    ]
+    assert len(non_executable_actions) == 1
+    assert non_executable_actions[0].tool_call.id == "call_1"
+    assert non_executable_actions[0].tool_call.arguments != invalid_json
+
+    replayed_arguments = json.loads(non_executable_actions[0].tool_call.arguments)
+    assert replayed_arguments["_openhands_invalid_tool_arguments"] is True

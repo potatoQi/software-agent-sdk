@@ -81,6 +81,27 @@ logger = get_logger(__name__)
 maybe_init_laminar()
 
 
+def _tool_call_with_valid_json_arguments(tool_call: MessageToolCall) -> MessageToolCall:
+    """Return a copy whose arguments are safe to replay in LLM history."""
+    try:
+        json.loads(tool_call.arguments)
+    except json.JSONDecodeError:
+        return tool_call.model_copy(
+            update={
+                "arguments": json.dumps(
+                    {
+                        "_openhands_invalid_tool_arguments": True,
+                        "message": (
+                            "Original tool arguments were not valid JSON and were "
+                            "replaced so the model can receive the validation error."
+                        ),
+                    }
+                )
+            }
+        )
+    return tool_call
+
+
 def _tool_has_summary_param(tool: ToolDefinition) -> bool:
     """Return True if the tool's own schema declares ``summary`` as a parameter.
 
@@ -828,7 +849,7 @@ class Agent(CriticMixin, AgentBase):
                 reasoning_content=reasoning_content,
                 thinking_blocks=thinking_blocks or [],
                 responses_reasoning_item=responses_reasoning_item,
-                tool_call=tool_call,
+                tool_call=_tool_call_with_valid_json_arguments(tool_call),
                 tool_name=tool_call.name,
                 tool_call_id=tool_call.id,
                 llm_response_id=llm_response_id,
@@ -891,7 +912,7 @@ class Agent(CriticMixin, AgentBase):
                 reasoning_content=reasoning_content,
                 thinking_blocks=thinking_blocks or [],
                 responses_reasoning_item=responses_reasoning_item,
-                tool_call=tool_call,
+                tool_call=_tool_call_with_valid_json_arguments(tool_call),
                 tool_name=tool_call.name,
                 tool_call_id=tool_call.id,
                 llm_response_id=llm_response_id,
