@@ -15,6 +15,7 @@ def test_llm_basic_json_serialization() -> None:
         model="test-model",
         temperature=0.5,
         max_output_tokens=1000,
+        ssl_verify=False,
         usage_id="test-llm",
     )
 

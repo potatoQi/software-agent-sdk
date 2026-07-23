@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, get_args, get_origin
 
 import httpx  # noqa: F401
+from openai import OpenAI
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -227,6 +228,13 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
         ge=0,
         description="HTTP timeout in seconds. Default is 300s (5 minutes). "
         "Set to None to disable timeout (not recommended for production).",
+    )
+    ssl_verify: bool | str | None = Field(
+        default=None,
+        description=(
+            "TLS certificate verification for this LLM's HTTP requests. "
+            "Set to False to allow a self-signed endpoint, or to a CA bundle path."
+        ),
     )
 
     max_message_chars: int = Field(
@@ -449,6 +457,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
     _telemetry: Telemetry | None = PrivateAttr(default=None)
     _is_subscription: bool = PrivateAttr(default=False)
     _litellm_provider: str | None = PrivateAttr(default=None)
+    _openai_client: OpenAI | None = PrivateAttr(default=None)
 
     model_config: ClassVar[ConfigDict] = ConfigDict(
         extra="ignore", arbitrary_types_allowed=True
@@ -975,6 +984,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                         api_base=self.base_url,
                         api_version=self.api_version,
                         timeout=self.timeout,
+                        ssl_verify=self.ssl_verify,
                         drop_params=self.drop_params,
                         seed=self.seed,
                         **{**self._aws_kwargs(), **final_kwargs},
@@ -1135,6 +1145,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                     message="Accessing the 'model_fields' attribute.*",
                 )
                 api_key_value = self._get_litellm_api_key_value()
+                openai_client = self._get_openai_client(api_key=api_key_value)
 
                 # Some providers need renames handled in _normalize_call_kwargs.
                 ret = litellm_completion(
@@ -1146,6 +1157,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                     drop_params=self.drop_params,
                     seed=self.seed,
                     messages=messages,
+                    client=openai_client,
                     **{**self._aws_kwargs(), **kwargs},
                 )
                 if enable_streaming and on_token is not None:
@@ -1160,6 +1172,21 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
                     f"Expected ModelResponse, got {type(ret)}"
                 )
                 return ret
+
+    def _get_openai_client(self, *, api_key: str | None) -> OpenAI | None:
+        if self.ssl_verify is None or self._infer_litellm_provider() != "openai":
+            return None
+        if self._openai_client is None:
+            self._openai_client = OpenAI(
+                api_key=api_key,
+                base_url=self.base_url,
+                http_client=httpx.Client(
+                    verify=self.ssl_verify,
+                    follow_redirects=True,
+                ),
+                max_retries=0,
+            )
+        return self._openai_client
 
     @contextmanager
     def _litellm_modify_params_ctx(self, flag: bool):

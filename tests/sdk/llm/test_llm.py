@@ -5,6 +5,7 @@ from litellm.exceptions import (
     RateLimitError,
 )
 from litellm.types.llms.openai import ResponseAPIUsage, ResponsesAPIResponse
+from openai import OpenAI
 from openai.types.responses.response_output_message import ResponseOutputMessage
 from openai.types.responses.response_output_text import ResponseOutputText
 from pydantic import SecretStr
@@ -329,6 +330,7 @@ def test_llm_forwards_extra_headers_to_litellm(mock_completion):
         model="gpt-4o",
         api_key=SecretStr("test_key"),
         extra_headers=headers,
+        ssl_verify=False,
         num_retries=0,
     )
 
@@ -339,6 +341,8 @@ def test_llm_forwards_extra_headers_to_litellm(mock_completion):
     _, kwargs = mock_completion.call_args
     # extra_headers forwarded either directly or inside **kwargs
     assert kwargs.get("extra_headers") == headers
+    assert isinstance(kwargs.get("client"), OpenAI)
+    assert "ssl_verify" not in kwargs
 
 
 @patch("openhands.sdk.llm.llm.litellm_responses")
@@ -374,6 +378,7 @@ def test_llm_responses_forwards_extra_headers_to_litellm(mock_responses):
         model="gpt-4o",
         api_key=SecretStr("test_key"),
         extra_headers=headers,
+        ssl_verify=False,
         num_retries=0,
     )
 
@@ -386,6 +391,7 @@ def test_llm_responses_forwards_extra_headers_to_litellm(mock_responses):
     assert mock_responses.call_count == 1
     _, kwargs = mock_responses.call_args
     assert kwargs.get("extra_headers") == headers
+    assert kwargs.get("ssl_verify") is False
 
 
 @patch("openhands.sdk.llm.llm.litellm_completion")
